@@ -1,0 +1,26 @@
+{
+  "name": "mercadolibre-real-estate-scraper",
+  "version": "1.0.0",
+  "description": "Apify Actor para scraping de propiedades inmobiliarias de MercadoLibre Argentina",
+  "main": "main.js",
+  "scripts": {
+    "start": "node main.js",
+    "test": "node test-local.js",
+    "test:debug": "APIFY_HEADLESS=false node test-local.js"
+  },
+  "dependencies": {
+    "apify": "^3.1.10",
+    "playwright": "^1.40.0"
+  },
+  "keywords": [
+    "apify",
+    "scraping",
+    "mercadolibre",
+    "real-estate",
+    "argentina",
+    "inmuebles",
+    "propiedades"
+  ],
+  "author": "Lucas Diaz",
+  "license": "MIT"
+}

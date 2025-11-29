@@ -1,0 +1,13 @@
+node_modules/
+.env
+*.log
+*.html
+*.json
+!package.json
+!package-lock.json
+!apify.json
+!input_schema.json
+apify_storage/
+storage/
+.DS_Store
+*.png

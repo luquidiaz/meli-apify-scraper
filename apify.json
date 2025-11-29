@@ -1,0 +1,12 @@
+{
+  "actorSpecification": 1,
+  "name": "mercadolibre-real-estate-scraper",
+  "title": "MercadoLibre Real Estate Scraper",
+  "description": "Actor para hacer scraping de propiedades inmobiliarias de MercadoLibre Argentina con técnicas anti-detección avanzadas",
+  "version": "1.0.0",
+  "meta": {
+    "templateId": "puppeteer_crawler"
+  },
+  "input": "./input_schema.json",
+  "dockerfile": "./Dockerfile"
+}

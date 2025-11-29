@@ -1,0 +1,28 @@
+{
+  "title": "MercadoLibre Real Estate Scraper Input",
+  "type": "object",
+  "schemaVersion": 1,
+  "properties": {
+    "url": {
+      "title": "URL de la propiedad",
+      "type": "string",
+      "description": "URL de la publicación de MercadoLibre a scrapear. Ejemplos: https://inmueble.mercadolibre.com.ar/MLA-..., https://casa.mercadolibre.com.ar/MLA-..., https://departamento.mercadolibre.com.ar/MLA-...",
+      "editor": "textfield"
+    },
+    "includeHtml": {
+      "title": "Incluir HTML crudo",
+      "type": "boolean",
+      "description": "Incluir el HTML original en la respuesta (aumenta el tamaño considerablemente)",
+      "editor": "checkbox",
+      "default": false
+    },
+    "includeScreenshot": {
+      "title": "Incluir screenshot",
+      "type": "boolean",
+      "description": "Incluir un screenshot de la página en base64",
+      "editor": "checkbox",
+      "default": false
+    }
+  },
+  "required": ["url"]
+}
