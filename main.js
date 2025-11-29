@@ -145,6 +145,9 @@ async function extractPropertyData(page, url) {
         // Imágenes
         const images = [];
         const imgSelectors = [
+            'figure.gallery-image img.gallery-image__image',
+            'figure.gallery-image img',
+            '.vis-gallery-mosaic img',
             'figure.ui-pdp-gallery__figure img',
             '.ui-pdp-gallery__figure img',
             '.ui-pdp-image img',
@@ -158,10 +161,13 @@ async function extractPropertyData(page, url) {
                            img.getAttribute('src');
                 if (src && src.startsWith('http') && !images.includes(src)) {
                     let highResSrc = src;
-                    if (src.includes('-I.')) {
-                        highResSrc = src.replace('-I.', '-O.');
+                    // Convertir a alta resolución: -F y -I a -O
+                    if (src.includes('-F-null.')) {
+                        highResSrc = src.replace('-F-null.', '-O.');
                     } else if (src.includes('-F.')) {
                         highResSrc = src.replace('-F.', '-O.');
+                    } else if (src.includes('-I.')) {
+                        highResSrc = src.replace('-I.', '-O.');
                     }
                     images.push(highResSrc);
                 }
