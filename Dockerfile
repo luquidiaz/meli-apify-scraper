@@ -5,7 +5,7 @@ FROM apify/actor-node-playwright-chrome:20
 COPY package*.json ./
 
 # Instalar dependencias (sin reinstalar playwright, usar el de la imagen)
-RUN npm install --omit=dev --omit=optional --ignore-scripts \
+RUN npm install --omit=dev --omit=optional \
     && echo "Installed NPM packages:" \
     && (npm list --omit=dev --all || true) \
     && echo "Node.js version:" \
