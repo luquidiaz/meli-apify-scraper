@@ -11,8 +11,7 @@ RUN npm install --omit=dev --omit=optional \
     && echo "Node.js version:" \
     && node --version \
     && echo "NPM version:" \
-    && npm --version \
-    && rm -rf /var/lib/apt/lists/*
+    && npm --version
 
 # Copiar código fuente
 COPY . ./
