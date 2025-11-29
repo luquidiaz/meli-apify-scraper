@@ -1,5 +1,5 @@
 const { Actor } = require('apify');
-const { chromium } = require('playwright');
+const { PlaywrightCrawler } = require('crawlee');
 
 // User agents rotativos para parecer más humano
 const USER_AGENTS = [
@@ -7,7 +7,6 @@ const USER_AGENTS = [
     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
 ];
 
 function getRandomUserAgent() {
@@ -60,7 +59,6 @@ async function extractPropertyData(page, url) {
             if (!value) return null;
             const match = value.match(/[\d.,]+/);
             if (match) {
-                // Convertir formato argentino (. miles, , decimal) a número
                 const num = match[0].replace(/\./g, '').replace(',', '.');
                 return parseFloat(num) || null;
             }
@@ -159,7 +157,6 @@ async function extractPropertyData(page, url) {
                            img.getAttribute('data-src') ||
                            img.getAttribute('src');
                 if (src && src.startsWith('http') && !images.includes(src)) {
-                    // Convertir a máxima resolución
                     let highResSrc = src;
                     if (src.includes('-I.')) {
                         highResSrc = src.replace('-I.', '-O.');
@@ -189,7 +186,6 @@ async function extractPropertyData(page, url) {
                         extractText('.ui-vip-location') ||
                         subtitle;
 
-        // Verificar si obtuvimos datos válidos
         const hasValidData = title && (price > 0 || images.length > 0);
 
         return {
@@ -225,77 +221,6 @@ async function extractPropertyData(page, url) {
     return data;
 }
 
-// Configurar browser con anti-detección
-async function setupBrowser() {
-    const userAgent = getRandomUserAgent();
-    console.log(`🔧 User-Agent: ${userAgent.substring(0, 50)}...`);
-
-    const browser = await chromium.launch({
-        headless: true,
-        args: [
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-dev-shm-usage',
-            '--disable-blink-features=AutomationControlled',
-            '--disable-features=VizDisplayCompositor',
-            '--disable-gpu',
-            '--no-first-run',
-            '--no-default-browser-check',
-        ]
-    });
-
-    const context = await browser.newContext({
-        userAgent: userAgent,
-        viewport: { width: 1920, height: 1080 },
-        locale: 'es-AR',
-        timezoneId: 'America/Argentina/Buenos_Aires',
-        geolocation: { latitude: -34.6037, longitude: -58.3816 },
-        permissions: ['geolocation'],
-        extraHTTPHeaders: {
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-            'Accept-Language': 'es-AR,es;q=0.9,en;q=0.8',
-            'Accept-Encoding': 'gzip, deflate, br',
-            'DNT': '1',
-            'Connection': 'keep-alive',
-            'Upgrade-Insecure-Requests': '1',
-            'Sec-Fetch-Dest': 'document',
-            'Sec-Fetch-Mode': 'navigate',
-            'Sec-Fetch-Site': 'none',
-            'Sec-Fetch-User': '?1',
-            'sec-ch-ua': '"Chromium";v="131", "Not_A Brand";v="24"',
-            'sec-ch-ua-mobile': '?0',
-            'sec-ch-ua-platform': '"Windows"'
-        }
-    });
-
-    const page = await context.newPage();
-
-    // Scripts anti-detección
-    await page.addInitScript(() => {
-        // Ocultar webdriver
-        Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-
-        // Plugins realistas
-        Object.defineProperty(navigator, 'plugins', {
-            get: () => [
-                { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer' },
-                { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai' },
-                { name: 'Native Client', filename: 'internal-nacl-plugin' }
-            ]
-        });
-
-        // Propiedades del navegador
-        Object.defineProperty(navigator, 'languages', { get: () => ['es-AR', 'es', 'en'] });
-        Object.defineProperty(navigator, 'deviceMemory', { get: () => 8 });
-        Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => 8 });
-
-        // Chrome runtime
-        window.chrome = { runtime: {} };
-    });
-
-    return { browser, context, page };
-}
-
 // Función principal
 async function main() {
     await Actor.init();
@@ -303,10 +228,7 @@ async function main() {
     const startTime = Date.now();
     console.log('🚀 MercadoLibre Real Estate Scraper iniciando...');
 
-    let browser = null;
-
     try {
-        // Obtener input
         const input = await Actor.getInput();
 
         if (!input || !input.url) {
@@ -317,7 +239,6 @@ async function main() {
 
         console.log(`🎯 URL objetivo: ${url}`);
 
-        // Validar URL
         if (!validateMercadoLibreUrl(url)) {
             throw new Error(`URL no válida. Debe ser de MercadoLibre Argentina.`);
         }
@@ -325,66 +246,104 @@ async function main() {
         const itemId = extractItemId(url);
         console.log(`🔑 Item ID: ${itemId}`);
 
-        // Configurar browser
-        const { browser: b, context, page } = await setupBrowser();
-        browser = b;
+        const userAgent = getRandomUserAgent();
+        console.log(`🔧 User-Agent: ${userAgent.substring(0, 50)}...`);
 
-        // Navegar primero a listados para "calentar" la sesión
-        console.log('🔥 Calentando sesión...');
-        await page.goto('https://listado.mercadolibre.com.ar/inmuebles/', {
-            waitUntil: 'domcontentloaded',
-            timeout: 30000
-        });
-
-        // Delay humano
-        const warmupDelay = getRandomDelay(3000, 5000);
-        console.log(`⏳ Esperando ${warmupDelay/1000}s...`);
-        await new Promise(resolve => setTimeout(resolve, warmupDelay));
-
-        // Navegar a la propiedad objetivo
-        console.log('📍 Navegando a la propiedad...');
-        await page.goto(url, {
-            waitUntil: 'domcontentloaded',
-            timeout: 45000
-        });
-
-        // Esperar que cargue el contenido
-        const loadDelay = getRandomDelay(4000, 6000);
-        console.log(`⏳ Esperando carga de contenido (${loadDelay/1000}s)...`);
-        await new Promise(resolve => setTimeout(resolve, loadDelay));
-
-        // Scroll para activar lazy loading
-        console.log('📜 Haciendo scroll...');
-        await page.evaluate(() => {
-            window.scrollTo(0, document.body.scrollHeight / 3);
-        });
-        await new Promise(resolve => setTimeout(resolve, 1500));
-        await page.evaluate(() => {
-            window.scrollTo(0, document.body.scrollHeight / 2);
-        });
-        await new Promise(resolve => setTimeout(resolve, 1500));
-
-        // Extraer datos
-        const propertyData = await extractPropertyData(page, url);
-
-        // Screenshot opcional
+        let propertyData = null;
         let screenshotBase64 = null;
-        if (includeScreenshot) {
-            console.log('📸 Tomando screenshot...');
-            const screenshot = await page.screenshot({ fullPage: false });
-            screenshotBase64 = screenshot.toString('base64');
-        }
-
-        // HTML opcional
         let html = null;
-        if (includeHtml) {
-            html = await page.content();
-        }
 
-        await browser.close();
-        browser = null;
+        const crawler = new PlaywrightCrawler({
+            maxRequestsPerCrawl: 2,
+            requestHandlerTimeoutSecs: 120,
+            navigationTimeoutSecs: 60,
+            headless: true,
+
+            launchContext: {
+                launchOptions: {
+                    args: [
+                        '--no-sandbox',
+                        '--disable-setuid-sandbox',
+                        '--disable-dev-shm-usage',
+                        '--disable-blink-features=AutomationControlled',
+                    ]
+                }
+            },
+
+            browserPoolOptions: {
+                useFingerprints: false,
+            },
+
+            preNavigationHooks: [
+                async ({ page }) => {
+                    await page.setExtraHTTPHeaders({
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+                        'Accept-Language': 'es-AR,es;q=0.9,en;q=0.8',
+                        'DNT': '1',
+                    });
+
+                    await page.addInitScript(() => {
+                        Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+                        Object.defineProperty(navigator, 'languages', { get: () => ['es-AR', 'es', 'en'] });
+                        window.chrome = { runtime: {} };
+                    });
+                }
+            ],
+
+            async requestHandler({ page, request }) {
+                const currentUrl = request.url;
+                console.log(`📍 Procesando: ${currentUrl}`);
+
+                // Si es la página de listados (warmup), solo esperamos
+                if (currentUrl.includes('listado.mercadolibre')) {
+                    console.log('🔥 Calentando sesión...');
+                    await new Promise(r => setTimeout(r, getRandomDelay(2000, 4000)));
+                    return;
+                }
+
+                // Página de propiedad
+                console.log('⏳ Esperando carga...');
+                await new Promise(r => setTimeout(r, getRandomDelay(4000, 6000)));
+
+                // Scroll para lazy loading
+                console.log('📜 Haciendo scroll...');
+                await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight / 3));
+                await new Promise(r => setTimeout(r, 1500));
+                await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight / 2));
+                await new Promise(r => setTimeout(r, 1500));
+
+                // Extraer datos
+                propertyData = await extractPropertyData(page, currentUrl);
+
+                // Screenshot opcional
+                if (includeScreenshot) {
+                    console.log('📸 Tomando screenshot...');
+                    const screenshot = await page.screenshot({ fullPage: false });
+                    screenshotBase64 = screenshot.toString('base64');
+                }
+
+                // HTML opcional
+                if (includeHtml) {
+                    html = await page.content();
+                }
+            },
+
+            failedRequestHandler({ request, error }) {
+                console.error(`❌ Request fallido: ${request.url}`, error.message);
+            }
+        });
+
+        // Correr el crawler con warmup + URL objetivo
+        await crawler.run([
+            'https://listado.mercadolibre.com.ar/inmuebles/',
+            url
+        ]);
 
         const duration = Date.now() - startTime;
+
+        if (!propertyData) {
+            throw new Error('No se pudieron extraer datos de la propiedad');
+        }
 
         // Preparar resultado
         const result = {
@@ -398,15 +357,13 @@ async function main() {
             }
         };
 
-        // Eliminar _metadata duplicado
         delete result._metadata;
 
-        // Agregar HTML si se solicitó
         if (includeHtml && html) {
             result.html = html;
         }
 
-        // Logging de resultado
+        // Logging
         console.log('\n✅ Scraping completado');
         console.log(`⏱️ Duración: ${(duration / 1000).toFixed(2)}s`);
         console.log(`📊 Éxito: ${result.success}`);
@@ -415,14 +372,11 @@ async function main() {
             console.log(`🏠 Título: ${result.title}`);
             console.log(`💰 Precio: ${result.currency} ${result.price}`);
             console.log(`🛏️ Dormitorios: ${result.dormitorios || 'N/A'}`);
-            console.log(`🚿 Baños: ${result.banos || 'N/A'}`);
-            console.log(`📐 Superficie: ${result.metros_totales || 'N/A'}m²`);
             console.log(`📸 Imágenes: ${result.images?.length || 0}`);
         } else {
             console.log(`❌ Error: ${result.error || result.message}`);
         }
 
-        // Guardar resultado
         await Actor.pushData(result);
         await Actor.setValue('OUTPUT', result);
 
@@ -440,13 +394,9 @@ async function main() {
 
         await Actor.pushData(errorResult);
         await Actor.setValue('OUTPUT', errorResult);
-
-    } finally {
-        if (browser) {
-            await browser.close();
-        }
-        await Actor.exit();
     }
+
+    await Actor.exit();
 }
 
 main().catch(async (error) => {
