@@ -144,6 +144,20 @@ async function extractPropertyData(page, url) {
 
         // Imágenes
         const images = [];
+
+        // Función para convertir a alta resolución
+        const toHighRes = (src) => {
+            if (src.includes('-F-null.')) {
+                return src.replace('-F-null.', '-O.');
+            } else if (src.includes('-F.')) {
+                return src.replace('-F.', '-O.');
+            } else if (src.includes('-I.')) {
+                return src.replace('-I.', '-O.');
+            }
+            return src;
+        };
+
+        // Método 1: Extraer de elementos IMG del DOM
         const imgSelectors = [
             'figure.gallery-image img.gallery-image__image',
             'figure.gallery-image img',
@@ -159,19 +173,57 @@ async function extractPropertyData(page, url) {
                 const src = img.getAttribute('data-zoom') ||
                            img.getAttribute('data-src') ||
                            img.getAttribute('src');
-                if (src && src.startsWith('http') && !images.includes(src)) {
-                    let highResSrc = src;
-                    // Convertir a alta resolución: -F y -I a -O
-                    if (src.includes('-F-null.')) {
-                        highResSrc = src.replace('-F-null.', '-O.');
-                    } else if (src.includes('-F.')) {
-                        highResSrc = src.replace('-F.', '-O.');
-                    } else if (src.includes('-I.')) {
-                        highResSrc = src.replace('-I.', '-O.');
+                if (src && src.includes('mlstatic.com') && !images.includes(src)) {
+                    const highResSrc = toHighRes(src);
+                    if (!images.includes(highResSrc)) {
+                        images.push(highResSrc);
                     }
-                    images.push(highResSrc);
                 }
             });
+        }
+
+        // Método 2: Si no encontramos imágenes, buscar en JSON-LD embebido
+        if (images.length === 0) {
+            const scripts = document.querySelectorAll('script[type="application/ld+json"]');
+            scripts.forEach(script => {
+                try {
+                    const json = JSON.parse(script.textContent);
+                    if (json.image) {
+                        const imgs = Array.isArray(json.image) ? json.image : [json.image];
+                        imgs.forEach(img => {
+                            const src = typeof img === 'string' ? img : img.url;
+                            if (src && src.includes('mlstatic.com') && !images.includes(src)) {
+                                const highResSrc = toHighRes(src);
+                                if (!images.includes(highResSrc)) {
+                                    images.push(highResSrc);
+                                }
+                            }
+                        });
+                    }
+                } catch (e) {}
+            });
+        }
+
+        // Método 3: Buscar en el __PRELOADED_STATE__ de MercadoLibre
+        if (images.length === 0) {
+            const allScripts = document.querySelectorAll('script');
+            for (const script of allScripts) {
+                const content = script.textContent || '';
+                if (content.includes('__PRELOADED_STATE__') || content.includes('initialState')) {
+                    // Buscar URLs de imágenes con regex
+                    const imgMatches = content.matchAll(/https?:\\?\/\\?\/[^"'\s]*mlstatic\.com[^"'\s]*\.(webp|jpg|jpeg|png)/gi);
+                    for (const match of imgMatches) {
+                        let src = match[0].replace(/\\u002F/g, '/').replace(/\\\//g, '/');
+                        if (src.includes('D_NQ') && !src.includes('frontend-assets')) {
+                            const highResSrc = toHighRes(src);
+                            if (!images.includes(highResSrc)) {
+                                images.push(highResSrc);
+                            }
+                        }
+                    }
+                    if (images.length > 0) break;
+                }
+            }
         }
 
         // Coordenadas del mapa
@@ -417,6 +469,15 @@ async function main() {
                     });
                 });
                 await new Promise(r => setTimeout(r, getRandomDelay(1500, 2500)));
+
+                // Esperar a que las imágenes de la galería estén cargadas
+                console.log('📸 Esperando imágenes de la galería...');
+                try {
+                    await page.waitForSelector('figure.gallery-image img[src*="mlstatic.com"], .ui-pdp-gallery__figure img[src*="mlstatic.com"]', { timeout: 5000 });
+                } catch (e) {
+                    console.log('⚠️ No se encontraron imágenes con selector, intentando extracción alternativa...');
+                }
+                await new Promise(r => setTimeout(r, 1000));
 
                 // Extraer datos
                 propertyData = await extractPropertyData(page, currentUrl);
