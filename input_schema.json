@@ -9,6 +9,20 @@
       "description": "URL de la publicación de MercadoLibre a scrapear. Ejemplos: https://inmueble.mercadolibre.com.ar/MLA-..., https://casa.mercadolibre.com.ar/MLA-..., https://departamento.mercadolibre.com.ar/MLA-...",
       "editor": "textfield"
     },
+    "useProxy": {
+      "title": "Usar proxy residencial",
+      "type": "boolean",
+      "description": "Usar proxies residenciales de Apify para evitar bloqueos. Recomendado para MercadoLibre.",
+      "editor": "checkbox",
+      "default": true
+    },
+    "proxyCountry": {
+      "title": "País del proxy",
+      "type": "string",
+      "description": "Código de país para el proxy (AR = Argentina, BR = Brasil, etc.)",
+      "editor": "textfield",
+      "default": "AR"
+    },
     "includeHtml": {
       "title": "Incluir HTML crudo",
       "type": "boolean",
@@ -21,7 +35,7 @@
       "type": "boolean",
       "description": "Incluir un screenshot de la página en base64",
       "editor": "checkbox",
-      "default": false
+      "default": true
     }
   },
   "required": ["url"]

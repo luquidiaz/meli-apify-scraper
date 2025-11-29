@@ -1,5 +1,5 @@
 const { Actor } = require('apify');
-const { PlaywrightCrawler } = require('crawlee');
+const { PlaywrightCrawler, ProxyConfiguration } = require('crawlee');
 
 // User agents rotativos para parecer más humano
 const USER_AGENTS = [
@@ -235,7 +235,13 @@ async function main() {
             throw new Error('URL es requerida. Formato: {"url": "https://inmueble.mercadolibre.com.ar/MLA-..."}');
         }
 
-        const { url, includeHtml = false, includeScreenshot = false } = input;
+        const {
+            url,
+            includeHtml = false,
+            includeScreenshot = true,
+            useProxy = true,
+            proxyCountry = 'AR'
+        } = input;
 
         console.log(`🎯 URL objetivo: ${url}`);
 
@@ -249,15 +255,29 @@ async function main() {
         const userAgent = getRandomUserAgent();
         console.log(`🔧 User-Agent: ${userAgent.substring(0, 50)}...`);
 
+        // Configurar proxy de Apify (residencial de Argentina)
+        let proxyConfiguration = null;
+        if (useProxy) {
+            console.log(`🌐 Configurando proxy residencial (${proxyCountry})...`);
+            proxyConfiguration = await Actor.createProxyConfiguration({
+                groups: ['RESIDENTIAL'],
+                countryCode: proxyCountry,
+            });
+            console.log('✅ Proxy configurado');
+        }
+
         let propertyData = null;
         let screenshotBase64 = null;
         let html = null;
 
         const crawler = new PlaywrightCrawler({
-            maxRequestsPerCrawl: 2,
+            maxRequestsPerCrawl: 1, // Solo la URL objetivo, sin warmup
             requestHandlerTimeoutSecs: 120,
             navigationTimeoutSecs: 60,
             headless: true,
+
+            // Usar proxy si está configurado
+            proxyConfiguration,
 
             launchContext: {
                 launchOptions: {
@@ -266,26 +286,94 @@ async function main() {
                         '--disable-setuid-sandbox',
                         '--disable-dev-shm-usage',
                         '--disable-blink-features=AutomationControlled',
+                        '--disable-features=VizDisplayCompositor',
                     ]
                 }
             },
 
             browserPoolOptions: {
-                useFingerprints: false,
+                useFingerprints: true, // Habilitar fingerprints para más realismo
+                fingerprintOptions: {
+                    fingerprintGeneratorOptions: {
+                        browsers: ['chrome'],
+                        devices: ['desktop'],
+                        operatingSystems: ['windows', 'macos'],
+                        locales: ['es-AR', 'es'],
+                    }
+                }
             },
 
             preNavigationHooks: [
-                async ({ page }) => {
+                async ({ page, request }) => {
+                    // Headers más completos
                     await page.setExtraHTTPHeaders({
-                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-                        'Accept-Language': 'es-AR,es;q=0.9,en;q=0.8',
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+                        'Accept-Language': 'es-AR,es;q=0.9,en-US;q=0.8,en;q=0.7',
+                        'Accept-Encoding': 'gzip, deflate, br',
                         'DNT': '1',
+                        'Connection': 'keep-alive',
+                        'Upgrade-Insecure-Requests': '1',
+                        'Sec-Fetch-Dest': 'document',
+                        'Sec-Fetch-Mode': 'navigate',
+                        'Sec-Fetch-Site': 'none',
+                        'Sec-Fetch-User': '?1',
+                        'Cache-Control': 'max-age=0',
+                        'sec-ch-ua': '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+                        'sec-ch-ua-mobile': '?0',
+                        'sec-ch-ua-platform': '"Windows"',
                     });
 
+                    // Anti-detección avanzada
                     await page.addInitScript(() => {
+                        // Ocultar webdriver
                         Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-                        Object.defineProperty(navigator, 'languages', { get: () => ['es-AR', 'es', 'en'] });
-                        window.chrome = { runtime: {} };
+                        delete navigator.__proto__.webdriver;
+
+                        // Chrome runtime
+                        window.chrome = {
+                            runtime: {},
+                            loadTimes: function() {},
+                            csi: function() {},
+                            app: {}
+                        };
+
+                        // Plugins realistas
+                        Object.defineProperty(navigator, 'plugins', {
+                            get: () => {
+                                const plugins = [
+                                    { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
+                                    { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai', description: '' },
+                                    { name: 'Native Client', filename: 'internal-nacl-plugin', description: '' }
+                                ];
+                                plugins.length = 3;
+                                return plugins;
+                            }
+                        });
+
+                        // Languages
+                        Object.defineProperty(navigator, 'languages', {
+                            get: () => ['es-AR', 'es', 'en-US', 'en']
+                        });
+
+                        // Hardware concurrency
+                        Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => 8 });
+                        Object.defineProperty(navigator, 'deviceMemory', { get: () => 8 });
+
+                        // Permissions
+                        const originalQuery = window.navigator.permissions.query;
+                        window.navigator.permissions.query = (parameters) => (
+                            parameters.name === 'notifications' ?
+                                Promise.resolve({ state: Notification.permission }) :
+                                originalQuery(parameters)
+                        );
+
+                        // WebGL vendor
+                        const getParameter = WebGLRenderingContext.prototype.getParameter;
+                        WebGLRenderingContext.prototype.getParameter = function(parameter) {
+                            if (parameter === 37445) return 'Intel Inc.';
+                            if (parameter === 37446) return 'Intel Iris OpenGL Engine';
+                            return getParameter.call(this, parameter);
+                        };
                     });
                 }
             ],
@@ -294,37 +382,53 @@ async function main() {
                 const currentUrl = request.url;
                 console.log(`📍 Procesando: ${currentUrl}`);
 
-                // Si es la página de listados (warmup), solo esperamos
-                if (currentUrl.includes('listado.mercadolibre')) {
-                    console.log('🔥 Calentando sesión...');
-                    await new Promise(r => setTimeout(r, getRandomDelay(2000, 4000)));
-                    return;
-                }
-
-                // Página de propiedad
+                // Esperar carga inicial
                 console.log('⏳ Esperando carga...');
-                await new Promise(r => setTimeout(r, getRandomDelay(4000, 6000)));
+                await new Promise(r => setTimeout(r, getRandomDelay(3000, 5000)));
 
-                // Scroll para lazy loading
+                // Movimientos de mouse aleatorios para parecer humano
+                console.log('🖱️ Simulando interacción humana...');
+                await page.mouse.move(
+                    100 + Math.random() * 500,
+                    100 + Math.random() * 300
+                );
+                await new Promise(r => setTimeout(r, getRandomDelay(500, 1000)));
+
+                // Scroll suave para lazy loading
                 console.log('📜 Haciendo scroll...');
-                await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight / 3));
-                await new Promise(r => setTimeout(r, 1500));
-                await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight / 2));
-                await new Promise(r => setTimeout(r, 1500));
+                await page.evaluate(() => {
+                    return new Promise((resolve) => {
+                        let totalHeight = 0;
+                        const distance = 100;
+                        const timer = setInterval(() => {
+                            window.scrollBy(0, distance);
+                            totalHeight += distance;
+                            if (totalHeight >= document.body.scrollHeight / 2) {
+                                clearInterval(timer);
+                                resolve();
+                            }
+                        }, 100);
+                    });
+                });
+                await new Promise(r => setTimeout(r, getRandomDelay(1500, 2500)));
 
                 // Extraer datos
                 propertyData = await extractPropertyData(page, currentUrl);
 
-                // Screenshot opcional
-                if (includeScreenshot) {
+                // Screenshot siempre para debug
+                if (includeScreenshot || !propertyData.success) {
                     console.log('📸 Tomando screenshot...');
                     const screenshot = await page.screenshot({ fullPage: false });
                     screenshotBase64 = screenshot.toString('base64');
+
+                    // Guardar screenshot en key-value store para poder verlo
+                    await Actor.setValue('SCREENSHOT', screenshot, { contentType: 'image/png' });
                 }
 
                 // HTML opcional
-                if (includeHtml) {
+                if (includeHtml || !propertyData.success) {
                     html = await page.content();
+                    await Actor.setValue('HTML', html, { contentType: 'text/html' });
                 }
             },
 
@@ -333,11 +437,8 @@ async function main() {
             }
         });
 
-        // Correr el crawler con warmup + URL objetivo
-        await crawler.run([
-            'https://listado.mercadolibre.com.ar/inmuebles/',
-            url
-        ]);
+        // Correr el crawler solo con la URL objetivo
+        await crawler.run([url]);
 
         const duration = Date.now() - startTime;
 
@@ -352,6 +453,8 @@ async function main() {
                 ...propertyData._metadata,
                 scrapingDuration: duration,
                 itemId: itemId,
+                usedProxy: useProxy,
+                proxyCountry: useProxy ? proxyCountry : null,
                 ...(includeScreenshot && screenshotBase64 && { screenshotBase64 }),
                 ...(includeHtml && html && { htmlLength: html.length })
             }
@@ -375,6 +478,9 @@ async function main() {
             console.log(`📸 Imágenes: ${result.images?.length || 0}`);
         } else {
             console.log(`❌ Error: ${result.error || result.message}`);
+            if (result.bodyPreview) {
+                console.log(`📄 Preview: ${result.bodyPreview.substring(0, 200)}...`);
+            }
         }
 
         await Actor.pushData(result);
